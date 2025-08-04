@@ -35,4 +35,4 @@ while True:
     if oil_data:
         producer.send('oil_prices', oil_data)
         print("✅ Donnée envoyée :", oil_data)
-    time.sleep(3000)  # attendre 1 minute avant le prochain appel
+    time.sleep(60)  
