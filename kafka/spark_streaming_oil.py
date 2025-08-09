@@ -7,8 +7,8 @@ from pyspark.sql.window import Window
 # Création de la Spark Session
 spark = SparkSession.builder \
     .appName("OilPriceStreaming") \
-    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
-    .config("spark.mongodb.output.uri", "mongodb://localhost:27017/oil") \
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,""org.mongodb.spark:mongo-spark-connector_2.12:10.1.1") \
+    .config("spark.mongodb.output.uri", "mongodb://mongodb:27017/oil") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
@@ -23,7 +23,7 @@ schema = StructType() \
 # Lecture depuis Kafka
 df_raw = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("kafka.bootstrap.servers", "kafka:29092") \
     .option("subscribe", "oil_prices") \
     .option("startingOffsets", "latest") \
     .load()
@@ -42,6 +42,7 @@ df_json = df_raw.selectExpr("CAST(value AS STRING)") \
 # 🔹 Écriture des données brutes dans MongoDB
 df_json.writeStream \
     .format("mongodb") \
+    .option("uri", "mongodb://mongodb:27017/oil") \
     .option("checkpointLocation", "/tmp/checkpoints/raw") \
     .option("database", "oil") \
     .option("collection", "raw") \
@@ -50,7 +51,7 @@ df_json.writeStream \
 
 # 🔹 Calcul des KPIs sur 1 heure glissante (toutes les 10 minutes)
 df_kpi = df_json \
-    .withWatermark("api_timestamp", "25 hours") \
+    .withWatermark("api_timestamp", "1 hour") \
     .groupBy(window("api_timestamp", "5 minutes")) \
     .agg(
         first("price").alias("first_price"),
@@ -64,21 +65,25 @@ df_kpi = df_json \
 # 🔹 Écriture des KPIs dans MongoDB
 df_kpi.writeStream \
     .format("mongodb") \
+    .option("uri", "mongodb://mongodb:27017/oil") \
     .option("checkpointLocation", "/tmp/checkpoints/kpis") \
     .option("database", "oil") \
     .option("collection", "kpis") \
-    .outputMode("update") \
+    .outputMode("complete") \
     .start()
 
 # 🔹 Dernier prix connu (échantillon de 1 ligne)
-df_latest = df_json.orderBy(col("api_timestamp").desc()).limit(1)
+"""df_latest = df_json \
+    .withWatermark("api_timestamp", "10 minutes") \
+    .groupBy(window("api_timestamp", "1 minute")) \
+    .agg(last("price").alias("last_price"), last("api_timestamp").alias("last_timestamp"))
 
 df_latest.writeStream \
     .format("mongodb") \
     .option("checkpointLocation", "/tmp/checkpoints/latest") \
     .option("database", "oil") \
     .option("collection", "latest_price") \
-    .outputMode("complete") \
+    .outputMode("update") \
     .start()
-
+"""
 spark.streams.awaitAnyTermination()

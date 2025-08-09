@@ -16,10 +16,13 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,DOCKER://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,DOCKER://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,DOCKER:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   mongodb:
@@ -41,6 +44,24 @@ services:
       ME_CONFIG_MONGODB_PORT: 27017
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: admin
+  
+  spark:
+    image: bitnami/spark:3.4
+    container_name: spark
+    depends_on:
+      - kafka
+      - mongodb
+    environment:
+      - SPARK_MODE=master
+    volumes:
+      - ./checkpoints:/tmp/checkpoints
+      - ./kafka:/opt/spark-app
+    command: /opt/bitnami/spark/bin/spark-submit --master local[2] --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.mongodb.spark:mongo-spark-connector_2.12:10.1.1 /opt/spark-app/spark_streaming_oil.py
+
+
+
+
 
 volumes:
   mongo-data:
+
